@@ -16,6 +16,7 @@ from airflow.utils.task_group import TaskGroup
 from botocore.exceptions import ClientError
 from airflow.providers.amazon.aws.hooks.glue_catalog import GlueCatalogHook
 from airflow.providers.amazon.aws.operators.athena import AthenaOperator
+import xml.etree.ElementTree as ET
 
 
 
@@ -41,7 +42,7 @@ default_args = {
 }
 
 dag = DAG(
-    "jeju_car_sharing_company_locations",
+    "jeju_seogwiposi_exemplary_restaurant",
     default_args=default_args,
     start_date=datetime(2023, 1, 1),
     schedule_interval=None,
@@ -50,55 +51,48 @@ dag = DAG(
 
 with TaskGroup("bronze_layer", dag=dag) as bronze_layer:
 
-    def get_secret_key_from_secrets_manager(**context):
-        secret_key = None
-        try:
-            client = boto3.client(
-                service_name="secretsmanager",
-                region_name=REGION_NAME,
-            )
-            get_secret_value_response = client.get_secret_value(SecretId=SECRET_NAME)
-            secret_key = json.loads(get_secret_value_response["SecretString"])["KEY"]
-            logging.info(f"SECRET KEY: {secret_key}")
-            context["task_instance"].xcom_push(key="secret_key", value=secret_key)
-        except ClientError as e:
-            raise e
-
-    get_secret_key_from_secrets_manager_task = PythonOperator(
-        task_id="get_secret_key_from_secrets_manager_task",
-        python_callable=get_secret_key_from_secrets_manager,
-        dag=dag,
-    )
-
     def get_data_from_api(**context):
-        secret_key = context["task_instance"].xcom_pull(
-            task_ids="bronze_layer.get_secret_key_from_secrets_manager_task",
-            key="secret_key",
-        )
-        logging.info(secret_key)
-        if not secret_key:
-            raise ValueError("Failed to retrieve secret_key from XCom")
-
         try:
-            req_url = f"https://open.jejudatahub.net/api/proxy/88D0ba0a01a08D081tt8aDba21aabt28/{secret_key}"
+            req_url = "https://www.seogwipo.go.kr/openapi/goodRestaurantService/"
             res: requests.Response = requests.get(
                 req_url,
                 timeout=30,
             )
             res.raise_for_status()  # HTTP 에러 발생 시 예외 발생
 
-            res_data = json.loads(res.content)["data"]
+            # XML 파싱
+            root = ET.fromstring(res.content)
+
+            # item 데이터 추출
+            res_data = []
+            for item in root.findall(".//item"):
+                record = {
+                    "year": item.find("year").text,
+                    "resto_nm": item.find("resto_nm").text,
+                    "address": item.find("address").text,
+                    "lati": item.find("lati").text,
+                    "longi": item.find("longi").text,
+                    "tel": item.find("tel").text.strip(),
+                    "kind": item.find("kind").text,
+                    "mfood": item.find("mfood").text,
+                    "dong": item.find("dong").text,
+                    "appoint": item.find("appoint").text,
+                    "ldate": item.find("ldate").text,
+                }
+                res_data.append(record)
+
             logging.info(f"Data retrieved: {len(res_data)} records")
             context["task_instance"].xcom_push(key="res_data", value=res_data)
         except requests.exceptions.RequestException as e:
             logging.error(f"API request failed: {e}")
             raise e
-
+        except ET.ParseError as e:
+            logging.error(f"Failed to parse XML response: {e}")
+            raise e
+    
     get_data_from_api_task = PythonOperator(
         task_id="get_data_from_api_task",
         python_callable=get_data_from_api,
-        retries=3,
-        retry_delay=timedelta(seconds=10),
         dag=dag,
     )
 
@@ -125,7 +119,7 @@ with TaskGroup("bronze_layer", dag=dag) as bronze_layer:
     save_data_s3_raws_task = S3CreateObjectOperator(
         task_id="save_data_s3_raws_task",
         s3_bucket=BUCKET_RAWS,  # TODO: 버킷 이름
-        s3_key="jeju_car_sharing_company_locations/jeju_car_sharing_company_locations.csv",  # TODO: S3 객체 키 (저장 경로 및 파일 이름)
+        s3_key="jeju_seogwiposi_exemplary_restaurant/jeju_seogwiposi_exemplary_restaurant.csv",  # TODO: S3 객체 키 (저장 경로 및 파일 이름)
         data="{{ task_instance.xcom_pull(key='csv_data', task_ids='bronze_layer.prepare_csv_data_task') }}",
         replace=True,
         dag=dag,
@@ -133,6 +127,7 @@ with TaskGroup("bronze_layer", dag=dag) as bronze_layer:
 
     run_athena_query_task = AthenaOperator(
         task_id="run_athena_query_task",
+        database="ip_jeju_raw_db",
         query_execution_context={
             "Database": "ip_jeju_raw_db",  # Glue Data Catalog 데이터베이스 이름
             "Catalog": "AwsDataCatalog",
@@ -142,14 +137,14 @@ with TaskGroup("bronze_layer", dag=dag) as bronze_layer:
             `year` INT,
             `resto_nm` STRING,
             `address` STRING,
-            `lati` STRING,
-            `longi` STRING,
+            `lati` DOUBLE,
+            `longi` DOUBLE,
             `tel` STRING,
             `kind` STRING,
             `mfood` STRING,
             `dong` STRING,
             `appoint` STRING,
-            `ldate` STRING
+            `ldate` DATE
         )
         ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
         WITH SERDEPROPERTIES (
@@ -174,8 +169,7 @@ with TaskGroup("bronze_layer", dag=dag) as bronze_layer:
     )
 
     (
-        get_secret_key_from_secrets_manager_task
-        >> get_data_from_api_task
+        get_data_from_api_task
         >> prepare_csv_data_task
         >> save_data_s3_raws_task
         >> run_athena_query_task
@@ -434,4 +428,4 @@ with TaskGroup("gold_layer", dag=dag) as gold_layer:
     # )
 
 
-bronze_layer #  >> silver_layer >> gold_layer
+bronze_layer >> silver_layer >> gold_layer
