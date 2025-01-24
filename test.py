@@ -1,19 +1,42 @@
-import io
+import requests
+import xml.etree.ElementTree as ET
 
-import boto3
-import pandas as pd
 
-s3_client = boto3.client("s3", region_name="ap-northeast-2")
+try:
+    req_url = f"https://www.seogwipo.go.kr/openapi/goodRestaurantService/"
+    res: requests.Response = requests.get(
+        req_url,
+        timeout=30,
+    )
+    res.raise_for_status()  # HTTP 에러 발생 시 예외 발생
+    root = ET.fromstring(res.content)
+    
+    res_data = []
+    items = root.findall(".//item")
+    for item in items:
+        record = {
+            "year": item.find("year").text,
+            "resto_nm": item.find("resto_nm").text,
+            "address": item.find("address").text,
+            "lati": item.find("lati").text,
+            "longi": item.find("longi").text,
+            "tel": item.find("tel").text.strip(),
+            "kind": item.find("kind").text,
+            "mfood": item.find("mfood").text,
+            "dong": item.find("dong").text,
+            "appoint": item.find("appoint").text,
+            "ldate": item.find("ldate").text,
+        }
+        res_data.append(record)
+    
 
-# S3 객체 다운로드
-response = s3_client.get_object(
-    Bucket="ip-jeju-raws",
-    Key="jeju_car_sharing_company_locations/jeju_car_sharing_company_locations.csv",
-)
-print(f"Content Length: {response['ContentLength']} bytes")
-# print(response["Body"].read().decode("utf-8"))
-csv_content = response["Body"].read().decode("utf-8")  # CSV 데이터를 문자열로 읽기
+    # print(total[0].text)
+    # result = {child.tag: child.text for child in total} 
+    print(res_data)
 
-# CSV 데이터를 데이터프레임으로 변환
-df = pd.read_csv(io.StringIO(csv_content))
-print(f"Fetched {len(df)} rows from S3")
+    # res_data = json.loads(res.content)["data"]
+    # logging.info(f"Data retrieved: {len(res_data)} records")
+    # context["task_instance"].xcom_push(key="res_data", value=res_data)
+except requests.exceptions.RequestException as e:
+    # logging.error(f"API request failed: {e}")
+    raise e
