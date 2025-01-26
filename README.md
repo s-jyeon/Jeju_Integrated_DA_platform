@@ -1,6 +1,6 @@
 # ip-jeju-data-platform-airflow
 
-### SeSac 강동 | 클라우드 데이터 엔지니어 과정 | 1팀 IP 파이널 프로젝트
+### SeSac 강동 | 클라우드 데이터 엔지니어 과정 | 팀 IP 파이널 프로젝트
 
 ---
 
@@ -10,9 +10,9 @@
 
 ##### 가상 환경 세팅 및 활성화
 ```shell
-python -m venv venv
+python -m venv .venv
 
-source ./venv/bin/activate  # macOS
+source ./.venv/bin/activate  # macOS
 ./venv/Scripts/activate.bat  # Windows
 
 # 비활성화
