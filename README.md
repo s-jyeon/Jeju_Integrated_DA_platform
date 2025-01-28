@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ip-jeju-data-platform-airflow
 
 ### SeSac 강동 | 클라우드 데이터 엔지니어 과정 | 팀 IP 파이널 프로젝트
@@ -66,3 +67,6 @@ airflow scheduler
 
 ##### Airflow UI 세팅
 
+=======
+# Jeju_Integrated_DA_platform
+>>>>>>> 14aa962be48a028db810fa540a905145520294ef
