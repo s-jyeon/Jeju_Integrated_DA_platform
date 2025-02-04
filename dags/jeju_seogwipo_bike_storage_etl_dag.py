@@ -78,7 +78,7 @@ dag = DAG(
     'jeju_seogwipo_bike_storage_etl',
     default_args=default_args,
     description='Wait for file in S3, run Glue Crawler, then Glue Job',
-    schedule_interval=None,  # 외부 트리거로 실행(None) or 주기 설정 (@)
+    schedule_interval=None, # 외부 트리거로 실행(None) or 주기 설정 (@)
 )
 
 # Glue Job 실행 1.
